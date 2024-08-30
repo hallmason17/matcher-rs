@@ -1,6 +1,5 @@
-use std::time::{Instant, SystemTime};
+use std::time::SystemTime;
 
-use crate::order_book::OrderBook;
 use tracing_subscriber::fmt;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -11,34 +10,6 @@ mod order_book;
 fn main() {
     tracing_subscriber::registry().with(fmt::layer()).init();
     tracing::info!("Starting up matcher-rs");
-
-    let mut order_book = OrderBook::new();
-
-    let order_price = 122;
-    let order = Order::new(OrderType::GoodTilCancel, Side::Sell, order_price, 1);
-    order_book.place_order(order);
-    let order = Order::new(OrderType::GoodTilCancel, Side::Sell, order_price, 1);
-    order_book.place_order(order);
-    let order = Order::new(OrderType::GoodTilCancel, Side::Sell, order_price, 1);
-    order_book.place_order(order);
-    let order = Order::new(OrderType::GoodTilCancel, Side::Sell, order_price, 1);
-    order_book.place_order(order);
-    let order = Order::new(OrderType::GoodTilCancel, Side::Sell, order_price, 1);
-    order_book.place_order(order);
-
-    let order1 = Order::new(OrderType::FillAndKill, Side::Buy, 123, 5);
-    order_book.place_order(order1);
-
-    assert_eq!(order_book.get_bids().len(), 1);
-    assert_eq!(order_book.get_asks().len(), 1);
-
-    order_book.match_orders();
-
-    let order1 = Order::new(OrderType::FillAndKill, Side::Buy, order_price, 5);
-    order_book.place_order(order1);
-
-    assert_eq!(order_book.get_bids().len(), 0);
-    assert_eq!(order_book.get_asks().len(), 0);
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
