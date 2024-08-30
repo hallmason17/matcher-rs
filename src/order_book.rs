@@ -4,6 +4,7 @@ use crate::{Order, OrderType, Side};
 use std::{
     cmp::min,
     collections::{HashMap, VecDeque},
+    time::Instant,
 };
 #[derive(Debug, PartialEq, Eq)]
 pub struct OrderBook {
@@ -21,11 +22,11 @@ impl OrderBook {
     }
 
     pub fn get_bids(&self) -> &HashMap<i32, VecDeque<Order>> {
-        return &self.bids;
+        &self.bids
     }
 
     pub fn get_asks(&self) -> &HashMap<i32, VecDeque<Order>> {
-        return &self.asks;
+        &self.asks
     }
 
     pub fn place_order(&mut self, order: Order) {
@@ -46,14 +47,16 @@ impl OrderBook {
     }
 
     pub fn match_orders(&mut self) {
+        let now = Instant::now();
         loop {
             if self.bids.is_empty() || self.asks.is_empty() {
-                tracing::info!("Bids or asks empty, nothing to match");
+                println!("Finished matching in {:?}", now.elapsed());
                 break;
             }
             if let Some(bid_price) = &self.get_best_bid() {
                 if let Some(ask_price) = &self.get_best_ask() {
                     if bid_price < ask_price {
+                        println!("No matches, finished matching in {:?}", now.elapsed());
                         break;
                     }
                     let mut new_bids = self.bids.get(bid_price).unwrap().clone();
@@ -65,35 +68,43 @@ impl OrderBook {
                             let new_ask = ask.to_owned();
                             self.fill_order(new_bid, qty);
 
+                            /*
                             tracing::info!(
-                                "Filled order {:?} for {:?} quantity, {:?} remaining to fill",
-                                new_bid.order_id,
-                                qty,
-                                new_bid.order_rem_qty
-                            );
+                                                            "Filled order {:?} for {:?} quantity, {:?} remaining to fill",
+                                                            new_bid.order_id,
+                                                            qty,
+                                                            new_bid.order_rem_qty
+                                                        );
+                            */
 
                             self.fill_order(new_ask, qty);
-                            tracing::info!(
-                                "Filled order {:?} for {:?} quantity, {:?} remaining to fill",
-                                new_ask.order_id,
-                                qty,
-                                new_ask.order_rem_qty
-                            );
+                            /*
+                                                        tracing::info!(
+                                                            "Filled order {:?} for {:?} quantity, {:?} remaining to fill",
+                                                            new_ask.order_id,
+                                                            qty,
+                                                            new_ask.order_rem_qty
+                                                        );
+                            */
 
                             if new_bid.is_filled() {
-                                tracing::info!(
-                                    "Order {:?} filled, removing from queue",
-                                    new_bid.order_id
-                                );
+                                /*
+                                                                tracing::info!(
+                                                                    "Order {:?} filled, removing from queue",
+                                                                    new_bid.order_id
+                                                                );
+                                */
                                 new_bids.pop_front();
                                 self.set_bids_queue(bid_price, new_bids);
                             }
 
                             if new_ask.is_filled() {
-                                tracing::info!(
-                                    "Order {:?} filled, removing from queue",
-                                    new_ask.order_id
-                                );
+                                /*
+                                                                tracing::info!(
+                                                                    "Order {:?} filled, removing from queue",
+                                                                    new_ask.order_id
+                                                                );
+                                */
                                 new_asks.pop_front();
                                 self.set_asks_queue(ask_price, new_asks);
                             }
@@ -146,19 +157,19 @@ impl OrderBook {
     }
 
     fn set_bids_queue(&mut self, price: &i32, new_bids: VecDeque<Order>) {
-        if new_bids.len() == 0 {
-            self.bids.remove(&price);
+        if new_bids.is_empty() {
+            self.bids.remove(price);
         }
-        if let Some(q) = self.bids.get_mut(&price) {
+        if let Some(q) = self.bids.get_mut(price) {
             *q = new_bids;
         }
     }
 
     fn set_asks_queue(&mut self, price: &i32, new_asks: VecDeque<Order>) {
-        if new_asks.len() == 0 {
-            self.asks.remove(&price);
+        if new_asks.is_empty() {
+            self.asks.remove(price);
         }
-        if let Some(q) = self.asks.get_mut(&price) {
+        if let Some(q) = self.asks.get_mut(price) {
             *q = new_asks;
         }
     }
@@ -182,7 +193,7 @@ impl OrderBook {
                 best_ask = k
             }
         }
-        return Some(*best_ask);
+        Some(*best_ask)
     }
 
     fn get_best_bid(&self) -> Option<i32> {
@@ -195,7 +206,7 @@ impl OrderBook {
                 best_bid = k
             }
         }
-        return Some(*best_bid);
+        Some(*best_bid)
     }
 
     fn add_ask(&mut self, order: Order) {
@@ -216,9 +227,9 @@ impl OrderBook {
                 match self.get_best_ask() {
                     Some(best_ask) => {
                         println!("{:?} {:?}", price, best_ask);
-                        return price >= best_ask;
+                        price >= best_ask
                     }
-                    None => return false,
+                    None => false,
                 }
             }
             Side::Sell => {
@@ -228,9 +239,9 @@ impl OrderBook {
                 match self.get_best_bid() {
                     Some(best_bid) => {
                         println!("{:?} {:?}", price, best_bid);
-                        return price <= best_bid;
+                        price <= best_bid
                     }
-                    None => return false,
+                    None => false,
                 }
             }
         }
@@ -278,7 +289,7 @@ mod tests {
     }
 
     #[test]
-    fn match_orders() {
+    fn test_match_orders() {
         let order_price = 122;
         let order = Order::new(OrderType::GoodTilCancel, Side::Sell, order_price, 1);
         let mut order_book = OrderBook::new();

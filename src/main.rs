@@ -1,3 +1,4 @@
+use crate::order_book::OrderBook;
 use std::time::SystemTime;
 
 use tracing_subscriber::fmt;
@@ -10,6 +11,17 @@ mod order_book;
 fn main() {
     tracing_subscriber::registry().with(fmt::layer()).init();
     tracing::info!("Starting up matcher-rs");
+    let order_price = 122;
+    let order = Order::new(OrderType::GoodTilCancel, Side::Sell, order_price, 1);
+    let mut order_book = OrderBook::new();
+    order_book.place_order(order);
+    order_book.match_orders();
+    let order1 = Order::new(OrderType::GoodTilCancel, Side::Buy, order_price, 1);
+    order_book.place_order(order1);
+    order_book.match_orders();
+
+    assert_eq!(order_book.get_bids().len(), 0);
+    assert_eq!(order_book.get_asks().len(), 0);
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -49,7 +61,7 @@ impl Order {
     }
 
     pub fn is_filled(&self) -> bool {
-        return self.order_rem_qty == 0;
+        self.order_rem_qty == 0
     }
 }
 
