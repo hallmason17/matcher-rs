@@ -4,4 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+tracing = "0.1.40"
+tracing-subscriber = "0.3.18"
 uuid7 = "1.0.1"

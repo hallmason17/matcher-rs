@@ -1,9 +1,44 @@
+use std::time::{Instant, SystemTime};
+
+use crate::order_book::OrderBook;
+use tracing_subscriber::fmt;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 use uuid7::Uuid;
 
 mod order_book;
 
 fn main() {
-    print!("Hello World!")
+    tracing_subscriber::registry().with(fmt::layer()).init();
+    tracing::info!("Starting up matcher-rs");
+
+    let mut order_book = OrderBook::new();
+
+    let order_price = 122;
+    let order = Order::new(OrderType::GoodTilCancel, Side::Sell, order_price, 1);
+    order_book.place_order(order);
+    let order = Order::new(OrderType::GoodTilCancel, Side::Sell, order_price, 1);
+    order_book.place_order(order);
+    let order = Order::new(OrderType::GoodTilCancel, Side::Sell, order_price, 1);
+    order_book.place_order(order);
+    let order = Order::new(OrderType::GoodTilCancel, Side::Sell, order_price, 1);
+    order_book.place_order(order);
+    let order = Order::new(OrderType::GoodTilCancel, Side::Sell, order_price, 1);
+    order_book.place_order(order);
+
+    let order1 = Order::new(OrderType::FillAndKill, Side::Buy, 123, 5);
+    order_book.place_order(order1);
+
+    assert_eq!(order_book.get_bids().len(), 1);
+    assert_eq!(order_book.get_asks().len(), 1);
+
+    order_book.match_orders();
+
+    let order1 = Order::new(OrderType::FillAndKill, Side::Buy, order_price, 5);
+    order_book.place_order(order1);
+
+    assert_eq!(order_book.get_bids().len(), 0);
+    assert_eq!(order_book.get_asks().len(), 0);
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -14,11 +49,14 @@ struct Order {
     order_price: i32,
     order_init_qty: u32,
     order_rem_qty: u32,
+    created_at: SystemTime,
+    updated_at: SystemTime,
 }
 
 #[allow(dead_code)]
 impl Order {
     fn new(order_type: OrderType, order_side: Side, order_price: i32, order_qty: u32) -> Order {
+        let now = SystemTime::now();
         Order {
             order_id: uuid7::uuid7(),
             order_type,
@@ -26,6 +64,8 @@ impl Order {
             order_price,
             order_init_qty: order_qty,
             order_rem_qty: order_qty,
+            created_at: now,
+            updated_at: now,
         }
     }
 
@@ -34,6 +74,7 @@ impl Order {
             return;
         }
         self.order_rem_qty -= qty;
+        self.updated_at = SystemTime::now();
     }
 
     pub fn is_filled(&self) -> bool {
