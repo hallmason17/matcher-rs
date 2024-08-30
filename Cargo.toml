@@ -1,0 +1,7 @@
+[package]
+name = "order_book"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+uuid7 = "1.0.1"
