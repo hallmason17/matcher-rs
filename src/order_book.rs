@@ -1,31 +1,27 @@
-use tracing;
+use rustc_hash::FxHashMap;
 
 use crate::{Order, OrderType, Side};
-use std::{
-    cmp::min,
-    collections::{HashMap, VecDeque},
-    time::Instant,
-};
+use std::{cmp::min, collections::VecDeque, time::Instant};
 #[derive(Debug, PartialEq, Eq)]
 pub struct OrderBook {
-    bids: HashMap<i32, VecDeque<Order>>,
-    asks: HashMap<i32, VecDeque<Order>>,
+    bids: FxHashMap<i32, VecDeque<Order>>,
+    asks: FxHashMap<i32, VecDeque<Order>>,
 }
 
 #[allow(dead_code)]
 impl OrderBook {
     pub fn new() -> OrderBook {
         OrderBook {
-            bids: HashMap::new(),
-            asks: HashMap::new(),
+            bids: FxHashMap::default(),
+            asks: FxHashMap::default(),
         }
     }
 
-    pub fn get_bids(&self) -> &HashMap<i32, VecDeque<Order>> {
+    pub fn get_bids(&self) -> &FxHashMap<i32, VecDeque<Order>> {
         &self.bids
     }
 
-    pub fn get_asks(&self) -> &HashMap<i32, VecDeque<Order>> {
+    pub fn get_asks(&self) -> &FxHashMap<i32, VecDeque<Order>> {
         &self.asks
     }
 
