@@ -1,7 +1,7 @@
 use rustc_hash::FxHashMap;
 
 use crate::{Order, OrderType, Side, Trade};
-use std::{cmp::min, collections::VecDeque, io::Result, time::Instant};
+use std::{cmp::min, collections::VecDeque, io::Result};
 #[derive(Debug, PartialEq, Eq)]
 pub struct OrderBook {
     bids: FxHashMap<i32, VecDeque<Order>>,
@@ -46,9 +46,7 @@ impl OrderBook {
             Side::Buy => self.add_bid(order),
             Side::Sell => self.add_ask(order),
         }
-        let now = Instant::now();
         self.run_match();
-        tracing::info!("Finished match in {:?}", now.elapsed());
     }
 
     pub fn run_match(&mut self) {

@@ -1,5 +1,9 @@
 use crate::order_book::OrderBook;
+use serde::{Deserialize, Serialize};
+use std::time::Instant;
 use std::time::SystemTime;
+
+use std::io::Write;
 
 use tracing_subscriber::fmt;
 use tracing_subscriber::layer::SubscriberExt;
@@ -12,34 +16,35 @@ fn main() {
     tracing::info!("Starting up matcher-rs");
     let order_price = 122;
     let mut order_book = OrderBook::new();
-    let order = Order::new(OrderType::GoodTilCancel, Side::Sell, order_price, 1);
-    order_book.place_order(order);
-    let order = Order::new(OrderType::GoodTilCancel, Side::Sell, order_price, 1);
-    order_book.place_order(order);
-    let order = Order::new(OrderType::GoodTilCancel, Side::Sell, order_price, 1);
-    order_book.place_order(order);
-    let order = Order::new(OrderType::GoodTilCancel, Side::Sell, order_price, 1);
-    order_book.place_order(order);
-    let order = Order::new(OrderType::GoodTilCancel, Side::Sell, order_price, 1);
-    order_book.place_order(order);
-    let order1 = Order::new(OrderType::GoodTilCancel, Side::Buy, order_price + 1, 5);
-    order_book.place_order(order1);
+    let mut file = std::fs::File::create("order.json").unwrap();
+    let order_vec = vec![
+        OrderPub::new(OrderType::GoodTilCancel, Side::Sell, order_price, 1),
+        OrderPub::new(OrderType::GoodTilCancel, Side::Sell, order_price, 1),
+        OrderPub::new(OrderType::GoodTilCancel, Side::Sell, order_price, 1),
+        OrderPub::new(OrderType::GoodTilCancel, Side::Sell, order_price, 1),
+        OrderPub::new(OrderType::GoodTilCancel, Side::Sell, order_price, 1),
+        OrderPub::new(OrderType::GoodTilCancel, Side::Buy, order_price + 1, 5),
+    ];
+
+    let now = Instant::now();
+    let json = serde_json::to_string(&order_vec).unwrap();
+    file.write_all(json.as_bytes()).unwrap();
+    tracing::info!("Time taken to write to file: {:?}", now.elapsed());
+
+    let now = Instant::now();
+    let file = std::fs::File::open("order.json").unwrap();
+    let reader = std::io::BufReader::new(file);
+    let orders: Vec<OrderPub> = serde_json::from_reader(reader).unwrap();
+    tracing::info!("Time taken to read from file: {:?}", now.elapsed());
+
+    for data in orders {
+        order_book.place_order(data.clone().convert_to_order());
+        tracing::info!("{:?}", data);
+    }
 
     assert_eq!(order_book.get_bids().len(), 0);
     assert_eq!(order_book.get_asks().len(), 0);
-    dbg!(order_book.get_trades());
-}
-
-enum Events {
-    NewOrder {
-        id: String,
-        order_type: OrderType,
-        order_side: Side,
-        created_at: SystemTime,
-    },
-    OrderFilled {
-        id: String,
-    },
+    dbg!(&order_book);
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -63,7 +68,40 @@ impl Trade {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct OrderPub {
+    order_type: OrderType,
+    order_side: Side,
+    order_price: i32,
+    order_qty: u32,
+}
+
+impl OrderPub {
+    pub fn new(
+        order_type: OrderType,
+        order_side: Side,
+        order_price: i32,
+        order_qty: u32,
+    ) -> OrderPub {
+        OrderPub {
+            order_type,
+            order_side,
+            order_price,
+            order_qty,
+        }
+    }
+
+    pub fn convert_to_order(self) -> Order {
+        Order::new(
+            self.order_type,
+            self.order_side,
+            self.order_price,
+            self.order_qty,
+        )
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct Order {
     order_id: String,
     order_type: OrderType,
@@ -133,14 +171,14 @@ struct LevelInfo {
 }
 
 #[allow(dead_code)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 enum OrderType {
     FillAndKill,
     GoodTilCancel,
 }
 
 #[allow(dead_code)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 enum Side {
     Buy,
     Sell,
