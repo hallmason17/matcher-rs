@@ -61,14 +61,12 @@ impl OrderBook {
         let order_to_match: Option<Order> = {
             let queue_to_match = match order.order_side {
                 Side::Buy => {
-                    let mut vec = self.asks.to_owned();
-                    vec.sort();
-                    vec
+                    self.asks.sort();
+                    &mut self.asks
                 }
                 Side::Sell => {
-                    let mut vec = self.bids.to_owned();
-                    vec.sort_by(|a, b| b.price.partial_cmp(&a.price).unwrap());
-                    vec
+                    self.bids.sort_by(|a, b| b.price.partial_cmp(&a.price).unwrap());
+                    &mut self.bids
                 }
             };
             if !queue_to_match.is_empty() {
