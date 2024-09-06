@@ -1,5 +1,4 @@
 use std::{borrow::BorrowMut, cmp::Ordering, time::SystemTime};
-
 use crate::{limit::Limit, Order, Side};
 
 #[derive(Debug, PartialEq, Eq)]
@@ -61,11 +60,18 @@ impl OrderBook {
     fn find_order_to_match(&mut self, order: &Order) -> Option<Order> {
         let order_to_match: Option<Order> = {
             let queue_to_match = match order.order_side {
-                Side::Buy => &mut self.asks,
-                Side::Sell => &mut self.bids,
+                Side::Buy => {
+                    let mut vec = self.asks.to_owned();
+                    vec.sort();
+                    vec
+                }
+                Side::Sell => {
+                    let mut vec = self.bids.to_owned();
+                    vec.sort_by(|a, b| b.price.partial_cmp(&a.price).unwrap());
+                    vec
+                }
             };
             if !queue_to_match.is_empty() {
-                queue_to_match.sort();
                 queue_to_match.first().unwrap().orders.front().cloned()
             } else {
                 None
@@ -169,7 +175,6 @@ mod tests {
         let order1 = Order::new(OrderType::GoodTilCancel, Side::Buy, order_price, 5);
         order_book.place_order(order1);
 
-        dbg!(&order_book);
         assert_eq!(order_book.bids.len(), 0);
         assert_eq!(order_book.asks.len(), 0);
     }
@@ -178,9 +183,13 @@ mod tests {
     fn match_orders_diff_prices() {
         let mut order_book = OrderBook::new();
         let buyOrder = OrderPub::new(OrderType::GoodTilCancel, Side::Buy, 123, 1);
+        let buyOrder1 = OrderPub::new(OrderType::GoodTilCancel, Side::Buy, 124, 1);
         let sellOrder = OrderPub::new(OrderType::GoodTilCancel, Side::Sell, 122, 1);
-        order_book.place_order(sellOrder.convert_to_order());
+        let sellOrder1 = OrderPub::new(OrderType::GoodTilCancel, Side::Sell, 122, 1);
+        order_book.place_order(buyOrder1.convert_to_order());
         order_book.place_order(buyOrder.convert_to_order());
+        order_book.place_order(sellOrder.convert_to_order());
+        order_book.place_order(sellOrder1.convert_to_order());
         assert_eq!(order_book.bids.len(), 0);
         assert_eq!(order_book.asks.len(), 0);
     }
@@ -194,7 +203,6 @@ mod tests {
         let order1 = Order::new(OrderType::GoodTilCancel, Side::Buy, order_price, 1);
         order_book.place_order(order1);
 
-        dbg!(&order_book);
         assert_eq!(order_book.bids.len(), 0);
         assert_eq!(order_book.asks.len(), 0);
     }
