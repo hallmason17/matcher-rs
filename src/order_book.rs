@@ -1,258 +1,155 @@
-use rustc_hash::FxHashMap;
+use std::{borrow::BorrowMut, cmp::Ordering, time::SystemTime};
 
-use crate::{Order, OrderType, Side, Trade};
-use std::{cmp::min, collections::VecDeque, io::Result};
+use crate::{limit::Limit, Order, Side};
+
 #[derive(Debug, PartialEq, Eq)]
 pub struct OrderBook {
-    bids: FxHashMap<i32, VecDeque<Order>>,
-    asks: FxHashMap<i32, VecDeque<Order>>,
-    trades: Vec<Trade>,
+    pub bids: Vec<Limit>,
+    pub asks: Vec<Limit>,
 }
 
-#[allow(dead_code)]
 impl OrderBook {
     pub fn new() -> OrderBook {
         OrderBook {
-            bids: FxHashMap::default(),
-            asks: FxHashMap::default(),
-            trades: Vec::new(),
+            bids: Vec::new(),
+            asks: Vec::new(),
         }
     }
 
-    pub fn get_bids(&self) -> &FxHashMap<i32, VecDeque<Order>> {
-        &self.bids
-    }
-
-    pub fn get_asks(&self) -> &FxHashMap<i32, VecDeque<Order>> {
-        &self.asks
-    }
-
-    pub fn get_trades(&self) -> &Vec<Trade> {
-        &self.trades
-    }
-
-    pub fn place_order(&mut self, order: Order) {
+    pub fn place_order(&mut self, mut order: Order) {
         if order.order_init_qty == 0 {
             return;
         }
+        let order_to_match: Option<Order> = {
+            let queue_to_match = match order.order_side {
+                Side::Buy => &mut self.asks,
+                Side::Sell => &mut self.bids,
+            };
+            if !queue_to_match.is_empty() {
+                queue_to_match.sort();
+                queue_to_match.first().unwrap().orders.front().cloned()
+            } else {
+                None
+            }
+        };
 
-        if order.order_type == OrderType::FillAndKill
-            && !self.can_match_order(order.order_side, order.order_price)
-        {
-            return;
+        if let Some(order_try_match) = order_to_match {
+            let can_match = match order.order_side {
+                Side::Buy => order.order_price >= order_try_match.order_price,
+                Side::Sell => order.order_price <= order_try_match.order_price,
+            };
+            if can_match {
+                if self.try_match_order(&mut order) {
+                } else {
+                    let ord = Order {
+                        order_id: order.order_id.clone(),
+                        order_side: order.order_side,
+                        order_rem_qty: order.order_rem_qty - order_try_match.order_rem_qty,
+                        order_price: order.order_price,
+                        order_type: order.order_type,
+                        order_init_qty: order.order_init_qty,
+                        created_at: order.created_at,
+                        updated_at: SystemTime::now(),
+                    };
+                    self.place_order(ord);
+                }
+            }
+        } else {
+            let queue = match order.order_side {
+                Side::Buy => &mut self.bids,
+                Side::Sell => &mut self.asks,
+            };
+            if let Some(lim_pos) = queue.iter().position(|lim| lim.price == order.order_price) {
+                let lim = queue[lim_pos].borrow_mut();
+                lim.orders.push_back(order);
+            } else {
+                let mut new_lim = Limit::new(order.order_price);
+                new_lim.orders.push_back(order.clone());
+                queue.push(new_lim.to_owned());
+            }
         }
-
-        match order.order_side {
-            Side::Buy => self.add_bid(order),
-            Side::Sell => self.add_ask(order),
-        }
-        self.run_match();
     }
 
-    pub fn run_match(&mut self) {
-        loop {
-            if self.bids.is_empty() || self.asks.is_empty() {
-                break;
+
+    fn try_match_order(&mut self, order: &mut Order) -> bool {
+        let order_to_match: Option<Order> = {
+            let queue_to_match = match order.order_side {
+                Side::Buy => &mut self.asks,
+                Side::Sell => &mut self.bids,
+            };
+            if !queue_to_match.is_empty() {
+                queue_to_match.sort();
+                queue_to_match.first().unwrap().orders.front().cloned()
+            } else {
+                None
             }
-            match self.match_orders() {
-                Ok((MatchStatus::Done, trade)) => {
-                    if let Some(trade) = trade {
-                        self.trades.push(trade)
-                    }
-                    break;
-                }
-                Ok((MatchStatus::Pending, trade)) => {
-                    if let Some(trade) = trade {
-                        self.trades.push(trade)
-                    }
-                    continue;
-                }
-                Err(_) => break,
-            }
-        }
-    }
+        };
 
-    fn match_orders(&mut self) -> Result<(MatchStatus, Option<Trade>)> {
-        if self.bids.is_empty() || self.asks.is_empty() {
-            return Ok((MatchStatus::Done, None));
-        }
-        if let Some(bid_price) = &self.get_best_bid() {
-            if let Some(ask_price) = &self.get_best_ask() {
-                if bid_price < ask_price {
-                    return Ok((MatchStatus::Done, None));
-                }
-                let mut new_bids = self.bids.get(bid_price).unwrap().clone();
-                let mut new_asks = self.asks.get(ask_price).unwrap().clone();
-                if let Some(bid) = new_bids.front() {
-                    if let Some(ask) = new_asks.front() {
-                        let qty = min(bid.order_rem_qty, ask.order_rem_qty);
-
-                        self.fill_order(bid.clone(), qty);
-                        self.fill_order(ask.clone(), qty);
-                        let trade = Some(Trade::new(
-                            &bid.order_id,
-                            &ask.order_id,
-                            &qty,
-                            &bid.order_price,
-                        ));
-
-                        if bid.order_rem_qty - qty == 0 {
-                            new_bids.pop_front();
-                            self.set_bids_queue(bid_price, new_bids);
+        if let Some(order_try_match) = order_to_match {
+            let can_match = match order.order_side {
+                Side::Buy => order.order_price >= order_try_match.order_price,
+                Side::Sell => order.order_price <= order_try_match.order_price,
+            };
+            if can_match {
+                match order.order_rem_qty.cmp(&order_try_match.order_rem_qty) {
+                    Ordering::Greater => {
+                        let lim_vec = match order.order_side {
+                            Side::Buy => &mut self.asks,
+                            Side::Sell => &mut self.bids,
+                        };
+                        if let Some(lim_pos) = lim_vec
+                            .iter()
+                            .position(|lim| lim.price == order.order_price)
+                        {
+                            let lim = lim_vec[lim_pos].borrow_mut();
+                            lim.orders.pop_front();
+                            if lim.orders.is_empty() {
+                                lim_vec.remove(lim_pos);
+                            }
+                            return false;
                         }
-
-                        if ask.order_rem_qty - qty == 0 {
-                            new_asks.pop_front();
-                            self.set_asks_queue(ask_price, new_asks);
+                        false
+                    }
+                    Ordering::Less => {
+                        let lim_vec = match order.order_side {
+                            Side::Buy => &mut self.asks,
+                            Side::Sell => &mut self.bids,
+                        };
+                        if let Some(lim_pos) = lim_vec
+                            .iter()
+                            .position(|lim| lim.price == order.order_price)
+                        {
+                            let lim = lim_vec[lim_pos].borrow_mut();
+                            let mut opp_ord = lim.orders.front().unwrap().to_owned();
+                            let _ = opp_ord.fill(order.order_rem_qty);
+                            return true;
+                        };
+                        true
+                    }
+                    _ => {
+                        let lim_vec = match order.order_side {
+                            Side::Buy => &mut self.asks,
+                            Side::Sell => &mut self.bids,
+                        };
+                        if let Some(lim_pos) = lim_vec
+                            .iter()
+                            .position(|lim| lim.price == order.order_price)
+                        {
+                            let lim = lim_vec[lim_pos].borrow_mut();
+                            lim.orders.pop_front();
+                            if lim.orders.is_empty() {
+                                lim_vec.remove(lim_pos);
+                            }
+                            return true;
                         }
-                        if self.bids.is_empty() || self.asks.is_empty() {
-                            return Ok((MatchStatus::Done, trade));
-                        }
-                        return Ok((MatchStatus::Pending, trade));
+                        true
                     }
-                }
+                };
             }
         }
-        Ok((MatchStatus::Done, None))
+        false
     }
 
-    fn remove_order(&mut self, order: Order) {
-        match order.order_side {
-            Side::Buy => {
-                if let Some(q) = self.bids.get(&order.order_price) {
-                    let mut queue = q.clone();
-                    queue.retain(|x| x.order_id != order.order_id);
-                    self.set_bids_queue(&order.order_price, queue);
-                }
-            }
-            Side::Sell => {
-                if let Some(q) = self.asks.get(&order.order_price) {
-                    let mut queue = q.clone();
-                    queue.retain(|x| x.order_id != order.order_id);
-                    self.set_asks_queue(&order.order_price, queue);
-                }
-            }
-        }
-    }
-
-    fn fill_order(&mut self, mut order: Order, qty: u32) {
-        let ord = order
-            .fill(qty)
-            .expect("could not fill this order for that qty");
-        match order.order_side {
-            Side::Buy => {
-                if let Some(q) = self.bids.get(&ord.order_price) {
-                    let mut queue = q.clone();
-                    queue.pop_front();
-                    queue.push_front(ord);
-                    self.set_bids_queue(&order.order_price, queue);
-                }
-            }
-            Side::Sell => {
-                if let Some(q) = self.asks.get(&order.order_price) {
-                    let mut queue = q.clone();
-                    queue.pop_front();
-                    queue.push_front(ord);
-                    self.set_asks_queue(&order.order_price, queue);
-                }
-            }
-        }
-    }
-
-    fn set_bids_queue(&mut self, price: &i32, new_bids: VecDeque<Order>) {
-        if new_bids.is_empty() {
-            self.bids.remove(price);
-        }
-        if let Some(q) = self.bids.get_mut(price) {
-            *q = new_bids;
-        }
-    }
-
-    fn set_asks_queue(&mut self, price: &i32, new_asks: VecDeque<Order>) {
-        if new_asks.is_empty() {
-            self.asks.remove(price);
-        }
-        if let Some(q) = self.asks.get_mut(price) {
-            *q = new_asks;
-        }
-    }
-
-    fn add_bid(&mut self, order: Order) {
-        let mut bids = VecDeque::new();
-        bids.push_back(order.clone());
-        self.bids
-            .entry(order.order_price)
-            .and_modify(|orders| orders.push_back(order))
-            .or_insert(bids);
-    }
-
-    fn get_best_ask(&self) -> Option<i32> {
-        if self.asks.is_empty() {
-            return None;
-        }
-        let mut best_ask: &i32 = &i32::MAX;
-        for (k, _) in self.asks.iter() {
-            if k <= best_ask {
-                best_ask = k
-            }
-        }
-        Some(*best_ask)
-    }
-
-    fn get_best_bid(&self) -> Option<i32> {
-        if self.bids.is_empty() {
-            return None;
-        }
-        let mut best_bid: &i32 = &i32::MIN;
-        for (k, _) in self.bids.iter() {
-            if k >= best_bid {
-                best_bid = k
-            }
-        }
-        Some(*best_bid)
-    }
-
-    fn add_ask(&mut self, order: Order) {
-        let mut asks = VecDeque::new();
-        asks.push_back(order.clone());
-        self.asks
-            .entry(order.order_price)
-            .and_modify(|orders| orders.push_back(order))
-            .or_insert(asks);
-    }
-
-    fn can_match_order(&self, side: Side, price: i32) -> bool {
-        match side {
-            Side::Buy => {
-                if self.asks.is_empty() {
-                    return false;
-                }
-                match self.get_best_ask() {
-                    Some(best_ask) => {
-                        println!("{:?} {:?}", price, best_ask);
-                        price >= best_ask
-                    }
-                    None => false,
-                }
-            }
-            Side::Sell => {
-                if self.bids.is_empty() {
-                    return false;
-                }
-                match self.get_best_bid() {
-                    Some(best_bid) => {
-                        println!("{:?} {:?}", price, best_bid);
-                        price <= best_bid
-                    }
-                    None => false,
-                }
-            }
-        }
-    }
-}
-enum MatchStatus {
-    Pending,
-    Done,
 }
 
 #[cfg(test)]
@@ -262,38 +159,6 @@ mod tests {
 
     use crate::order_book::OrderBook;
     use crate::{Order, OrderType, Side};
-
-    #[test]
-    fn remove_ask_order() {
-        let order_price = 122;
-        let mut order_book = OrderBook::new();
-        let order = Order::new(OrderType::GoodTilCancel, Side::Sell, order_price, 1);
-        order_book.place_order(order.clone());
-        assert_eq!(order_book.get_asks().len(), 1);
-        if let Some(q) = order_book.get_asks().get(&order_price) {
-            let mut vecd = VecDeque::new();
-            vecd.push_back(order.clone());
-            assert_eq!(q, &vecd);
-        }
-        order_book.remove_order(order);
-        assert_eq!(order_book.get_asks().len(), 0);
-    }
-
-    #[test]
-    fn remove_bid_order() {
-        let order_price = 122;
-        let mut order_book = OrderBook::new();
-        let order = Order::new(OrderType::GoodTilCancel, Side::Buy, order_price, 1);
-        order_book.place_order(order.clone());
-        assert_eq!(order_book.get_bids().len(), 1);
-        if let Some(q) = order_book.get_bids().get(&order_price) {
-            let mut vecd = VecDeque::new();
-            vecd.push_back(order.clone());
-            assert_eq!(q, &vecd);
-        }
-        order_book.remove_order(order);
-        assert_eq!(order_book.get_bids().len(), 0);
-    }
 
     #[test]
     fn test_match_multiple_orders() {
@@ -313,8 +178,8 @@ mod tests {
         order_book.place_order(order1);
 
         dbg!(&order_book);
-        assert_eq!(order_book.get_bids().len(), 0);
-        assert_eq!(order_book.get_asks().len(), 0);
+        assert_eq!(order_book.bids.len(), 0);
+        assert_eq!(order_book.asks.len(), 0);
     }
 
     #[test]
@@ -326,8 +191,9 @@ mod tests {
         let order1 = Order::new(OrderType::GoodTilCancel, Side::Buy, order_price, 1);
         order_book.place_order(order1);
 
-        assert_eq!(order_book.get_bids().len(), 0);
-        assert_eq!(order_book.get_asks().len(), 0);
+        dbg!(&order_book);
+        assert_eq!(order_book.bids.len(), 0);
+        assert_eq!(order_book.asks.len(), 0);
     }
 
     #[test]
@@ -336,8 +202,7 @@ mod tests {
         let order = Order::new(OrderType::GoodTilCancel, Side::Sell, order_price, 1);
         let mut order_book = OrderBook::new();
         order_book.place_order(order);
-        assert_eq!(order_book.get_asks().len(), 1);
-        assert_eq!(order_book.get_best_ask(), Some(order_price));
+        assert_eq!(order_book.asks.len(), 1);
     }
 
     #[test]
@@ -346,43 +211,7 @@ mod tests {
         let order = Order::new(OrderType::GoodTilCancel, Side::Buy, order_price, 1);
         let mut order_book = OrderBook::new();
         order_book.place_order(order);
-        assert_eq!(order_book.get_bids().len(), 1);
-        assert_eq!(order_book.get_best_bid(), Some(order_price));
+        assert_eq!(order_book.bids.len(), 1);
     }
 
-    #[test]
-    fn can_match_sell_order() {
-        let buy_order = Order::new(OrderType::GoodTilCancel, Side::Buy, 123, 1);
-        let mut order_book = OrderBook::new();
-        order_book.place_order(buy_order);
-
-        assert_eq!(order_book.can_match_order(Side::Sell, 122), true);
-    }
-
-    #[test]
-    fn cannot_match_sell_order() {
-        let buy_order = Order::new(OrderType::GoodTilCancel, Side::Buy, 120, 1);
-        let mut order_book = OrderBook::new();
-        order_book.place_order(buy_order);
-
-        assert_eq!(order_book.can_match_order(Side::Sell, 122), false);
-    }
-
-    #[test]
-    fn can_match_buy_order() {
-        let sell_order = Order::new(OrderType::GoodTilCancel, Side::Sell, 118, 1);
-        let mut order_book = OrderBook::new();
-        order_book.place_order(sell_order);
-
-        assert_eq!(order_book.can_match_order(Side::Buy, 120), true);
-    }
-
-    #[test]
-    fn cannot_match_buy_order() {
-        let sell_order = Order::new(OrderType::GoodTilCancel, Side::Sell, 123, 1);
-        let mut order_book = OrderBook::new();
-        order_book.place_order(sell_order);
-
-        assert_eq!(order_book.can_match_order(Side::Buy, 120), false);
-    }
 }
