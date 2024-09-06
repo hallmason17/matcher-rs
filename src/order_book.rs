@@ -20,18 +20,7 @@ impl OrderBook {
         if order.order_init_qty == 0 {
             return;
         }
-        let order_to_match: Option<Order> = {
-            let queue_to_match = match order.order_side {
-                Side::Buy => &mut self.asks,
-                Side::Sell => &mut self.bids,
-            };
-            if !queue_to_match.is_empty() {
-                queue_to_match.sort();
-                queue_to_match.first().unwrap().orders.front().cloned()
-            } else {
-                None
-            }
-        };
+        let order_to_match = self.find_order_to_match(&order);
 
         if let Some(order_try_match) = order_to_match {
             let can_match = match order.order_side {
@@ -69,9 +58,7 @@ impl OrderBook {
             }
         }
     }
-
-
-    fn try_match_order(&mut self, order: &mut Order) -> bool {
+    fn find_order_to_match(&mut self, order: &Order) -> Option<Order> {
         let order_to_match: Option<Order> = {
             let queue_to_match = match order.order_side {
                 Side::Buy => &mut self.asks,
@@ -84,7 +71,12 @@ impl OrderBook {
                 None
             }
         };
+        order_to_match
+    }
 
+
+    fn try_match_order(&mut self, order: &mut Order) -> bool {
+        let order_to_match = self.find_order_to_match(&order);
         if let Some(order_try_match) = order_to_match {
             let can_match = match order.order_side {
                 Side::Buy => order.order_price >= order_try_match.order_price,
