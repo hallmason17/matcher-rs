@@ -99,7 +99,7 @@ impl OrderBook {
                         };
                         if let Some(lim_pos) = lim_vec
                             .iter()
-                            .position(|lim| lim.price == order.order_price)
+                            .position(|lim| lim.price == order_try_match.order_price)
                         {
                             let lim = lim_vec[lim_pos].borrow_mut();
                             lim.orders.pop_front();
@@ -117,7 +117,7 @@ impl OrderBook {
                         };
                         if let Some(lim_pos) = lim_vec
                             .iter()
-                            .position(|lim| lim.price == order.order_price)
+                            .position(|lim| lim.price == order_try_match.order_price)
                         {
                             let lim = lim_vec[lim_pos].borrow_mut();
                             let mut opp_ord = lim.orders.front().unwrap().to_owned();
@@ -133,7 +133,7 @@ impl OrderBook {
                         };
                         if let Some(lim_pos) = lim_vec
                             .iter()
-                            .position(|lim| lim.price == order.order_price)
+                            .position(|lim| lim.price == order_try_match.order_price)
                         {
                             let lim = lim_vec[lim_pos].borrow_mut();
                             lim.orders.pop_front();
@@ -158,7 +158,7 @@ mod tests {
     use std::collections::VecDeque;
 
     use crate::order_book::OrderBook;
-    use crate::{Order, OrderType, Side};
+    use crate::{Order, OrderPub, OrderType, Side};
 
     #[test]
     fn test_match_multiple_orders() {
@@ -178,6 +178,17 @@ mod tests {
         order_book.place_order(order1);
 
         dbg!(&order_book);
+        assert_eq!(order_book.bids.len(), 0);
+        assert_eq!(order_book.asks.len(), 0);
+    }
+
+    #[test]
+    fn match_orders_diff_prices() {
+        let mut order_book = OrderBook::new();
+        let buyOrder = OrderPub::new(OrderType::GoodTilCancel, Side::Buy, 123, 1);
+        let sellOrder = OrderPub::new(OrderType::GoodTilCancel, Side::Sell, 122, 1);
+        order_book.place_order(sellOrder.convert_to_order());
+        order_book.place_order(buyOrder.convert_to_order());
         assert_eq!(order_book.bids.len(), 0);
         assert_eq!(order_book.asks.len(), 0);
     }
