@@ -1,3 +1,7 @@
+// Copyright 2024 Mason Hall. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
 use crate::order_book::OrderBook;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -108,7 +112,7 @@ impl Order {
         }
         let new_rem_qty = self.remaining_qty - qty;
         Ok(Order {
-            id: self.id.clone(),
+            id: self.id,
             order_type: self.order_type,
             side: self.side,
             price: self.price,
