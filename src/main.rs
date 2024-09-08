@@ -1,11 +1,6 @@
 use crate::order_book::OrderBook;
 use serde::{Deserialize, Serialize};
-use std::cmp::Ordering;
-use std::time::Duration;
 use std::time::Instant;
-use std::time::SystemTime;
-
-use std::io::Write;
 
 use tracing_subscriber::fmt;
 use tracing_subscriber::layer::SubscriberExt;
@@ -18,109 +13,60 @@ fn main() {
     tracing_subscriber::registry().with(fmt::layer()).init();
     tracing::info!("Starting up matcher-rs");
     let mut order_book = OrderBook::new();
-    let buy_order = OrderPub::new(OrderType::GoodTilCancel, Side::Buy, 122, 1);
-    let sell_order = OrderPub::new(OrderType::GoodTilCancel, Side::Sell, 122, 1);
-    order_book.place_order(buy_order.convert_to_order());
-    order_book.place_order(sell_order.convert_to_order());
-    let mut order_book = OrderBook::new();
-    let mut file = std::fs::File::create("order.json").unwrap();
+    let buy_order = Commands::NewOrder {
+        order_type: OrderType::GoodTilCancel,
+        side: Side::Buy,
+        price: 122,
+        qty: 1,
+    };
+    let sell_order = Commands::NewOrder {
+        order_type: OrderType::GoodTilCancel,
+        side: Side::Sell,
+        price: 122,
+        qty: 1,
+    };
+    order_book.process_command(buy_order);
+    order_book.process_command(sell_order);
 
-    let now = Instant::now();
-    let mut order_vec = Vec::new();
-    order_vec.push(OrderPub::new(OrderType::GoodTilCancel, Side::Sell, 125, 1));
-    for _ in 0..500_000 {
-        order_vec.push(OrderPub::new(OrderType::GoodTilCancel, Side::Sell, 122, 1));
-    }
-    order_vec.push(OrderPub::new(OrderType::GoodTilCancel, Side::Sell, 125, 1));
-    for _ in 0..500_000 {
-        order_vec.push(OrderPub::new(OrderType::GoodTilCancel, Side::Buy, 122, 1));
-    }
-    let json = serde_json::to_string(&order_vec).unwrap();
-    file.write_all(json.as_bytes()).unwrap();
-    tracing::info!("Time taken to write to file: {:?}", now.elapsed());
-
-    let now = Instant::now();
-    let file = std::fs::File::open("order.json").unwrap();
-    let reader = std::io::BufReader::new(file);
-    let _orders: Vec<OrderPub> = serde_json::from_reader(reader).unwrap();
-    tracing::info!("Time taken to read from file: {:?}", now.elapsed());
-
-    let mut orders = Vec::new();
-    for order_pub in order_vec {
-        orders.push(order_pub.convert_to_order());
-    }
-
-    let mut times = Vec::new();
-    for order in orders {
-        let now = Instant::now();
-        order_book.place_order(order);
-        times.push(now.elapsed());
-    }
-
-    let sum: Duration = times.iter().sum::<Duration>();
-    tracing::info!("Total time to place orders: {:?} ", sum);
-    let avg = sum / times.len().try_into().unwrap();
-    tracing::info!("Avg time to place order: {:?}", avg);
     dbg!(&order_book.bids.len());
     dbg!(&order_book.asks.len());
     dbg!(&order_book);
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
-struct Trade {
-    trade_id: String,
-    buy_ord_id: String,
-    sell_ord_id: String,
-    quantity: u32,
-    price: i32,
-}
-
-impl Trade {
-    pub fn new(buyer_id: &str, seller_id: &str, quantity: &u32, price: &i32) -> Trade {
-        Trade {
-            trade_id: uuid7::uuid7().to_string(),
-            buy_ord_id: buyer_id.to_string(),
-            sell_ord_id: seller_id.to_string(),
-            quantity: *quantity,
-            price: *price,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct OrderPub {
-    order_type: OrderType,
-    order_side: Side,
-    order_price: i32,
-    order_qty: u32,
-}
-
-impl OrderPub {
-    pub fn new(
+enum Commands {
+    NewOrder {
         order_type: OrderType,
-        order_side: Side,
-        order_price: i32,
-        order_qty: u32,
-    ) -> OrderPub {
-        OrderPub {
-            order_type,
-            order_side,
-            order_price,
-            order_qty,
-        }
-    }
-
-    pub fn convert_to_order(self) -> Order {
-        Order::new(
-            self.order_type,
-            self.order_side,
-            self.order_price,
-            self.order_qty,
-        )
-    }
+        side: Side,
+        price: i32,
+        qty: u32,
+    },
+    ModifyOrder,
+    CancelOrder,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, PartialOrd, Ord)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum Events {
+    OrderPlaced {
+        order_id: String,
+        order_side: Side,
+        order_type: OrderType,
+        timestamp: Instant,
+    },
+    OrderModified,
+    OrderCanceled,
+    OrderPartiallyFilled {
+        order_id: String,
+        qty: u32,
+        timestamp: Instant,
+    },
+    OrderFilled {
+        order_id: String,
+        timestamp: Instant,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct Order {
     order_id: String,
     order_type: OrderType,
@@ -128,13 +74,13 @@ struct Order {
     order_price: i32,
     order_init_qty: u32,
     order_rem_qty: u32,
-    created_at: SystemTime,
-    updated_at: SystemTime,
+    created_at: Instant,
+    updated_at: Instant,
 }
 
 impl Order {
     fn new(order_type: OrderType, order_side: Side, order_price: i32, order_qty: u32) -> Order {
-        let now = SystemTime::now();
+        let now = Instant::now();
         Order {
             order_id: uuid7::uuid7().to_string(),
             order_type,
@@ -160,13 +106,10 @@ impl Order {
             order_init_qty: self.order_init_qty,
             order_rem_qty: new_rem_qty,
             created_at: self.created_at,
-            updated_at: SystemTime::now(),
+            updated_at: Instant::now(),
         })
     }
 }
-
-
-
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Ord, PartialOrd)]
 enum OrderType {
