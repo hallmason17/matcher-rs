@@ -1,5 +1,6 @@
 use crate::order_book::OrderBook;
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 
 use tracing_subscriber::fmt;
@@ -9,102 +10,110 @@ use tracing_subscriber::util::SubscriberInitExt;
 mod limit;
 mod order_book;
 
+fn get_id() -> usize {
+    static COUNTER: AtomicUsize = AtomicUsize::new(1);
+    COUNTER.fetch_add(1, Ordering::Relaxed)
+}
+
 fn main() {
     tracing_subscriber::registry().with(fmt::layer()).init();
     tracing::info!("Starting up matcher-rs");
     let mut order_book = OrderBook::new();
-    let buy_order = Commands::NewOrder {
-        order_type: OrderType::GoodTilCancel,
-        side: Side::Buy,
-        price: 122,
-        qty: 1,
-    };
-    let sell_order = Commands::NewOrder {
-        order_type: OrderType::GoodTilCancel,
-        side: Side::Sell,
-        price: 122,
-        qty: 1,
-    };
-    order_book.process_command(buy_order);
-    order_book.process_command(sell_order);
-
-    dbg!(&order_book.bids.len());
-    dbg!(&order_book.asks.len());
-    dbg!(&order_book);
+    let i = 20_000;
+    let now = Instant::now();
+    for _ in 0..i {
+        order_book.process_command(OrderCommand::New {
+            order_type: OrderType::GoodTilCancel,
+            side: Side::Buy,
+            price: 122,
+            qty: 1,
+        });
+        order_book.process_command(OrderCommand::New {
+            order_type: OrderType::GoodTilCancel,
+            side: Side::Sell,
+            price: 122,
+            qty: 1,
+        });
+    }
+    tracing::info!("Time to place {:?} orders: {:?}", i * 2, now.elapsed());
+    tracing::info!("Avg time per order: {:?}", now.elapsed() / i * 2);
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
-enum Commands {
-    NewOrder {
+enum OrderCommand {
+    New {
         order_type: OrderType,
         side: Side,
         price: i32,
         qty: u32,
     },
-    ModifyOrder,
-    CancelOrder,
+    Modify,
+    Cancel,
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
-enum Events {
-    OrderPlaced {
-        order_id: String,
-        order_side: Side,
+enum OrderEvent {
+    Placed {
+        id: usize,
+        side: Side,
         order_type: OrderType,
+        price: i32,
         timestamp: Instant,
     },
-    OrderModified,
-    OrderCanceled,
-    OrderPartiallyFilled {
-        order_id: String,
+    Modified,
+    Canceled,
+    PartiallyFilled {
+        id: usize,
+        price: i32,
         qty: u32,
         timestamp: Instant,
     },
-    OrderFilled {
-        order_id: String,
+    Filled {
+        id: usize,
+        price: i32,
         timestamp: Instant,
     },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct Order {
-    order_id: String,
+    id: usize,
     order_type: OrderType,
-    order_side: Side,
-    order_price: i32,
-    order_init_qty: u32,
-    order_rem_qty: u32,
+    side: Side,
+    price: i32,
+    initial_qty: u32,
+    remaining_qty: u32,
     created_at: Instant,
     updated_at: Instant,
 }
 
 impl Order {
-    fn new(order_type: OrderType, order_side: Side, order_price: i32, order_qty: u32) -> Order {
+    fn new(order_type: OrderType, side: Side, price: i32, qty: u32) -> Order {
         let now = Instant::now();
         Order {
-            order_id: uuid7::uuid7().to_string(),
+            id: get_id(),
             order_type,
-            order_side,
-            order_price,
-            order_init_qty: order_qty,
-            order_rem_qty: order_qty,
+            side,
+            price,
+            initial_qty: qty,
+            remaining_qty: qty,
             created_at: now,
             updated_at: now,
         }
     }
 
     pub fn fill(&mut self, qty: u32) -> Result<Order, ()> {
-        if qty > self.order_rem_qty {
+        if qty > self.remaining_qty {
             return Err(());
         }
-        let new_rem_qty = self.order_rem_qty - qty;
+        let new_rem_qty = self.remaining_qty - qty;
         Ok(Order {
-            order_id: self.order_id.clone(),
+            id: self.id.clone(),
             order_type: self.order_type,
-            order_side: self.order_side,
-            order_price: self.order_price,
-            order_init_qty: self.order_init_qty,
-            order_rem_qty: new_rem_qty,
+            side: self.side,
+            price: self.price,
+            initial_qty: self.initial_qty,
+            remaining_qty: new_rem_qty,
             created_at: self.created_at,
             updated_at: Instant::now(),
         })
