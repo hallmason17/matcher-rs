@@ -6,14 +6,14 @@ use crate::Order;
 use std::collections::VecDeque;
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
-pub struct Limit {
+pub struct Level {
     pub price: i32,
     pub orders: VecDeque<Order>,
 }
 
-impl Limit {
+impl Level {
     pub fn new(price: i32) -> Self {
-        Limit {
+        Level {
             price,
             orders: VecDeque::new(),
         }

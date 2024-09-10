@@ -2,13 +2,13 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-use crate::{limit::Limit, Order, OrderCommand, OrderEvent, Side};
+use crate::{level::Level, Order, OrderCommand, OrderEvent, Side};
 use std::{borrow::BorrowMut, cmp::Ordering, time::Instant};
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct OrderBook {
-    pub bids: Vec<Limit>,
-    pub asks: Vec<Limit>,
+    pub bids: Vec<Level>,
+    pub asks: Vec<Level>,
     events: Vec<OrderEvent>,
 }
 
@@ -79,13 +79,13 @@ impl OrderBook {
                 Side::Buy => &mut self.bids,
                 Side::Sell => &mut self.asks,
             };
-            if let Some(lim_pos) = queue.iter().position(|lim| lim.price == order.price) {
-                let lim = queue[lim_pos].borrow_mut();
-                lim.orders.push_back(order);
+            if let Some(lev_pos) = queue.iter().position(|lev| lev.price == order.price) {
+                let lev = queue[lev_pos].borrow_mut();
+                lev.orders.push_back(order);
             } else {
-                let mut new_lim = Limit::new(order.price);
-                new_lim.orders.push_back(order);
-                queue.push(new_lim);
+                let mut new_lev = Level::new(order.price);
+                new_lev.orders.push_back(order);
+                queue.push(new_lev);
             }
         }
     }
@@ -123,18 +123,18 @@ impl OrderBook {
             if can_match {
                 match order.remaining_qty.cmp(&order_try_match.remaining_qty) {
                     Ordering::Greater => {
-                        let lim_vec = match order.side {
+                        let lev_vec = match order.side {
                             Side::Buy => &mut self.asks,
                             Side::Sell => &mut self.bids,
                         };
-                        if let Some(lim_pos) = lim_vec
+                        if let Some(lev_pos) = lev_vec
                             .iter()
-                            .position(|lim| lim.price == order_try_match.price)
+                            .position(|lev| lev.price == order_try_match.price)
                         {
-                            let lim = lim_vec[lim_pos].borrow_mut();
-                            let opp_ord = lim.orders.pop_front().unwrap();
-                            if lim.orders.is_empty() {
-                                lim_vec.remove(lim_pos);
+                            let lev = lev_vec[lev_pos].borrow_mut();
+                            let opp_ord = lev.orders.pop_front().unwrap();
+                            if lev.orders.is_empty() {
+                                lev_vec.remove(lev_pos);
                             }
                             self.events.push(OrderEvent::PartiallyFilled {
                                 id: order.id,
@@ -152,16 +152,16 @@ impl OrderBook {
                         MatchStatus::Pending
                     }
                     Ordering::Less => {
-                        let lim_vec = match order.side {
+                        let lev_vec = match order.side {
                             Side::Buy => &mut self.asks,
                             Side::Sell => &mut self.bids,
                         };
-                        if let Some(lim_pos) = lim_vec
+                        if let Some(lev_pos) = lev_vec
                             .iter()
-                            .position(|lim| lim.price == order_try_match.price)
+                            .position(|lev| lev.price == order_try_match.price)
                         {
-                            let lim = lim_vec[lim_pos].borrow_mut();
-                            let mut opp_ord = lim.orders.front().unwrap().to_owned();
+                            let lev = lev_vec[lev_pos].borrow_mut();
+                            let mut opp_ord = lev.orders.front().unwrap().to_owned();
                             let _ = opp_ord.fill(order.remaining_qty);
                             self.events.push(OrderEvent::PartiallyFilled {
                                 id: opp_ord.id,
@@ -179,18 +179,18 @@ impl OrderBook {
                         MatchStatus::Done
                     }
                     _ => {
-                        let lim_vec = match order.side {
+                        let lev_vec = match order.side {
                             Side::Buy => &mut self.asks,
                             Side::Sell => &mut self.bids,
                         };
-                        if let Some(lim_pos) = lim_vec
+                        if let Some(lev_pos) = lev_vec
                             .iter()
-                            .position(|lim| lim.price == order_try_match.price)
+                            .position(|lev| lev.price == order_try_match.price)
                         {
-                            let lim = lim_vec[lim_pos].borrow_mut();
-                            let opp_ord = lim.orders.pop_front().unwrap();
-                            if lim.orders.is_empty() {
-                                lim_vec.remove(lim_pos);
+                            let lev = lev_vec[lev_pos].borrow_mut();
+                            let opp_ord = lev.orders.pop_front().unwrap();
+                            if lev.orders.is_empty() {
+                                lev_vec.remove(lev_pos);
                             }
                             self.events.push(OrderEvent::Filled {
                                 id: opp_ord.id,
