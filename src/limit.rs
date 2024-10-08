@@ -6,14 +6,14 @@ use crate::Order;
 use std::collections::VecDeque;
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
-pub struct Level {
+pub struct Limit {
     pub price: i32,
     pub orders: VecDeque<Order>,
 }
 
-impl Level {
+impl Limit {
     pub fn new(price: i32) -> Self {
-        Level {
+        Limit {
             price,
             orders: VecDeque::new(),
         }
@@ -39,37 +39,37 @@ impl Level {
 mod tests {
     use crate::Order;
 
-    use super::Level;
+    use super::Limit;
 
     #[test]
     fn test_remove_by_id() {
-        let mut level = Level::new(10);
+        let mut limit = Limit::new(10);
         let order = Order::new(crate::OrderType::GoodTilCancel, crate::Side::Buy, 10, 1);
-        level.orders.push_back(order.clone());
+        limit.orders.push_back(order.clone());
         let order = Order::new(crate::OrderType::GoodTilCancel, crate::Side::Buy, 10, 1);
-        level.orders.push_back(order.clone());
+        limit.orders.push_back(order.clone());
         let order = Order::new(crate::OrderType::GoodTilCancel, crate::Side::Buy, 10, 1);
-        level.orders.push_back(order.clone());
+        limit.orders.push_back(order.clone());
         let order1 = Order::new(crate::OrderType::GoodTilCancel, crate::Side::Buy, 10, 1);
-        level.orders.push_back(order1.clone());
+        limit.orders.push_back(order1.clone());
 
-        let removed = level.remove_order_by_id(order1.id);
+        let removed = limit.remove_order_by_id(order1.id);
         assert_eq!(removed, true)
     }
 
     #[test]
     fn test_find_by_id() {
-        let mut level = Level::new(10);
+        let mut limit = Limit::new(10);
         let order = Order::new(crate::OrderType::GoodTilCancel, crate::Side::Buy, 10, 1);
-        level.orders.push_back(order.clone());
+        limit.orders.push_back(order.clone());
         let order = Order::new(crate::OrderType::GoodTilCancel, crate::Side::Buy, 10, 1);
-        level.orders.push_back(order.clone());
+        limit.orders.push_back(order.clone());
         let order = Order::new(crate::OrderType::GoodTilCancel, crate::Side::Buy, 10, 1);
-        level.orders.push_back(order.clone());
+        limit.orders.push_back(order.clone());
         let order = Order::new(crate::OrderType::GoodTilCancel, crate::Side::Buy, 10, 1);
-        level.orders.push_back(order.clone());
+        limit.orders.push_back(order.clone());
 
-        let pos = level.find_by_id(order.id);
+        let pos = limit.find_by_id(order.id);
         assert_eq!(pos, Some(3usize))
     }
 }

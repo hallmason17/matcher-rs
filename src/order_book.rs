@@ -2,13 +2,13 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-use crate::{level::Level, Order, OrderCommand, OrderEvent, Side};
+use crate::{limit::Limit, Order, OrderCommand, OrderEvent, Side};
 use std::{borrow::BorrowMut, cmp::Ordering, time::Instant};
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct OrderBook {
-    pub bids: Vec<Level>,
-    pub asks: Vec<Level>,
+    pub bids: Vec<Limit>,
+    pub asks: Vec<Limit>,
     commands: Vec<OrderCommand>,
     events: Vec<OrderEvent>,
 }
@@ -54,10 +54,10 @@ impl OrderBook {
                     Side::Buy => &mut self.bids,
                     Side::Sell => &mut self.asks,
                 };
-                if let Some(lev_pos) = queue.iter().position(|lev| lev.price == price) {
-                    let level = queue[lev_pos].borrow_mut();
-                    if let Some(order_pos) = level.find_by_id(id) {
-                        let order = level.orders[order_pos].clone();
+                if let Some(lim_pos) = queue.iter().position(|lim| lim.price == price) {
+                    let limit = queue[lim_pos].borrow_mut();
+                    if let Some(order_pos) = limit.find_by_id(id) {
+                        let order = limit.orders[order_pos].clone();
                         self.process_command(OrderCommand::Cancel { id, side, price });
                         self.process_command(OrderCommand::New {
                             order_type,
@@ -76,9 +76,9 @@ impl OrderBook {
             Side::Buy => &mut self.bids,
             Side::Sell => &mut self.asks,
         };
-        if let Some(lev_pos) = queue.iter().position(|lev| lev.price == price) {
-            let lev = queue[lev_pos].borrow_mut();
-            if lev.remove_order_by_id(id) == true {
+        if let Some(lim_pos) = queue.iter().position(|lim| lim.price == price) {
+            let lim = queue[lim_pos].borrow_mut();
+            if lim.remove_order_by_id(id) == true {
                 self.events.push(OrderEvent::Canceled { id })
             }
         }
@@ -113,13 +113,13 @@ impl OrderBook {
                 Side::Buy => &mut self.bids,
                 Side::Sell => &mut self.asks,
             };
-            if let Some(lev_pos) = queue.iter().position(|lev| lev.price == order.price) {
-                let lev = queue[lev_pos].borrow_mut();
-                lev.orders.push_back(order);
+            if let Some(lim_pos) = queue.iter().position(|lim| lim.price == order.price) {
+                let lim = queue[lim_pos].borrow_mut();
+                lim.orders.push_back(order);
             } else {
-                let mut new_lev = Level::new(order.price);
-                new_lev.orders.push_back(order);
-                queue.push(new_lev);
+                let mut new_lim = Limit::new(order.price);
+                new_lim.orders.push_back(order);
+                queue.push(new_lim);
             }
         }
     }
@@ -150,18 +150,18 @@ impl OrderBook {
         let timestamp = Instant::now();
         match order.remaining_qty.cmp(&match_order.remaining_qty) {
             Ordering::Greater => {
-                let lev_vec = match order.side {
+                let lim_vec = match order.side {
                     Side::Buy => &mut self.asks,
                     Side::Sell => &mut self.bids,
                 };
-                if let Some(lev_pos) = lev_vec
+                if let Some(lim_pos) = lim_vec
                     .iter()
-                    .position(|lev| lev.price == match_order.price)
+                    .position(|lim| lim.price == match_order.price)
                 {
-                    let lev = lev_vec[lev_pos].borrow_mut();
-                    let opp_ord = lev.orders.pop_front().unwrap();
-                    if lev.orders.is_empty() {
-                        lev_vec.remove(lev_pos);
+                    let lim = lim_vec[lim_pos].borrow_mut();
+                    let opp_ord = lim.orders.pop_front().unwrap();
+                    if lim.orders.is_empty() {
+                        lim_vec.remove(lim_pos);
                     }
                     self.events.push(OrderEvent::PartiallyFilled {
                         id: order.id,
@@ -179,16 +179,16 @@ impl OrderBook {
                 return MatchStatus::Pending;
             }
             Ordering::Less => {
-                let lev_vec = match order.side {
+                let lim_vec = match order.side {
                     Side::Buy => &mut self.asks,
                     Side::Sell => &mut self.bids,
                 };
-                if let Some(lev_pos) = lev_vec
+                if let Some(lim_pos) = lim_vec
                     .iter()
-                    .position(|lev| lev.price == match_order.price)
+                    .position(|lim| lim.price == match_order.price)
                 {
-                    let lev = lev_vec[lev_pos].borrow_mut();
-                    let mut opp_ord = lev.orders.front().unwrap().to_owned();
+                    let lim = lim_vec[lim_pos].borrow_mut();
+                    let mut opp_ord = lim.orders.front().unwrap().to_owned();
                     let _ = opp_ord.fill(order.remaining_qty);
                     self.events.push(OrderEvent::PartiallyFilled {
                         id: opp_ord.id,
@@ -206,18 +206,18 @@ impl OrderBook {
                 return MatchStatus::Done;
             }
             _ => {
-                let lev_vec = match order.side {
+                let lim_vec = match order.side {
                     Side::Buy => &mut self.asks,
                     Side::Sell => &mut self.bids,
                 };
-                if let Some(lev_pos) = lev_vec
+                if let Some(lim_pos) = lim_vec
                     .iter()
-                    .position(|lev| lev.price == match_order.price)
+                    .position(|lim| lim.price == match_order.price)
                 {
-                    let lev = lev_vec[lev_pos].borrow_mut();
-                    let opp_ord = lev.orders.pop_front().unwrap();
-                    if lev.orders.is_empty() {
-                        lev_vec.remove(lev_pos);
+                    let lim = lim_vec[lim_pos].borrow_mut();
+                    let opp_ord = lim.orders.pop_front().unwrap();
+                    if lim.orders.is_empty() {
+                        lim_vec.remove(lim_pos);
                     }
                     self.events.push(OrderEvent::Filled {
                         id: opp_ord.id,
