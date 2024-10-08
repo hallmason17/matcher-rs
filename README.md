@@ -6,8 +6,8 @@ I hope to add more orderbook-api-type functionality eventually.
 ## Motivation
 
 I am really interested in real-time/low-latency systems like what is used in the
-financial industry. I heard a talk given by Jane Street describing some of the
-software/hardware that runs their exchange and was inspired to give it a try myself.
+financial industry for trading. I heard a talk given by Jane Street describing some of the
+software/hardware that runs their exchange and was inspired to give a small piece of it a try.
 I picked Rust because I had not used in on a project before, and I thought that
 this was reasonable enough in size/complexity for me to do.
 
