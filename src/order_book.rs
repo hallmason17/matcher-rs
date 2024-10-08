@@ -9,6 +9,7 @@ use std::{borrow::BorrowMut, cmp::Ordering, time::Instant};
 pub struct OrderBook {
     pub bids: Vec<Level>,
     pub asks: Vec<Level>,
+    commands: Vec<OrderCommand>,
     events: Vec<OrderEvent>,
 }
 
@@ -17,11 +18,13 @@ impl OrderBook {
         OrderBook {
             bids: Vec::new(),
             asks: Vec::new(),
-            events: Vec::new(),
+            commands: Vec::with_capacity(200_000),
+            events: Vec::with_capacity(200_000),
         }
     }
 
     pub fn process_command(&mut self, command: OrderCommand) {
+        self.commands.push(command.clone());
         match command {
             OrderCommand::New {
                 order_type,
@@ -39,8 +42,44 @@ impl OrderBook {
                 });
                 self.place_order(order);
             }
-            _ => {
-                todo!()
+            OrderCommand::Cancel { id, side, price } => self.remove_order(id, price, side),
+            OrderCommand::Modify {
+                id,
+                side,
+                price,
+                qty,
+                order_type,
+            } => {
+                let queue = match side {
+                    Side::Buy => &mut self.bids,
+                    Side::Sell => &mut self.asks,
+                };
+                if let Some(lev_pos) = queue.iter().position(|lev| lev.price == price) {
+                    let level = queue[lev_pos].borrow_mut();
+                    if let Some(order_pos) = level.find_by_id(id) {
+                        let order = level.orders[order_pos].clone();
+                        self.process_command(OrderCommand::Cancel { id, side, price });
+                        self.process_command(OrderCommand::New {
+                            order_type,
+                            side: order.side,
+                            price,
+                            qty,
+                        })
+                    }
+                }
+            }
+        }
+    }
+
+    fn remove_order(&mut self, id: usize, price: i32, side: Side) {
+        let queue = match side {
+            Side::Buy => &mut self.bids,
+            Side::Sell => &mut self.asks,
+        };
+        if let Some(lev_pos) = queue.iter().position(|lev| lev.price == price) {
+            let lev = queue[lev_pos].borrow_mut();
+            if lev.remove_order_by_id(id) == true {
+                self.events.push(OrderEvent::Canceled { id })
             }
         }
     }
@@ -57,18 +96,13 @@ impl OrderBook {
                 Side::Sell => order.price <= order_try_match.price,
             };
             if can_match {
-                match self.try_match_order(&mut order) {
+                match self.try_match_order(&mut order, &order_try_match) {
                     MatchStatus::Done => {}
                     MatchStatus::Pending => {
                         let ord = Order {
-                            id: order.id,
-                            side: order.side,
                             remaining_qty: order.remaining_qty - order_try_match.remaining_qty,
-                            price: order.price,
-                            order_type: order.order_type,
-                            initial_qty: order.initial_qty,
-                            created_at: order.created_at,
                             updated_at: Instant::now(),
+                            ..order
                         };
                         self.place_order(ord);
                     }
@@ -95,12 +129,12 @@ impl OrderBook {
             let queue_to_match = match order.side {
                 Side::Buy => {
                     self.asks.sort();
-                    &mut self.asks
+                    &self.asks
                 }
                 Side::Sell => {
                     self.bids
                         .sort_by(|a, b| b.price.partial_cmp(&a.price).unwrap());
-                    &mut self.bids
+                    &self.bids
                 }
             };
             if !queue_to_match.is_empty() {
@@ -112,104 +146,94 @@ impl OrderBook {
         order_to_match
     }
 
-    fn try_match_order(&mut self, order: &mut Order) -> MatchStatus {
-        let order_to_match = self.find_order_to_match(order);
+    fn try_match_order(&mut self, order: &mut Order, match_order: &Order) -> MatchStatus {
         let timestamp = Instant::now();
-        if let Some(order_try_match) = order_to_match {
-            let can_match = match order.side {
-                Side::Buy => order.price >= order_try_match.price,
-                Side::Sell => order.price <= order_try_match.price,
-            };
-            if can_match {
-                match order.remaining_qty.cmp(&order_try_match.remaining_qty) {
-                    Ordering::Greater => {
-                        let lev_vec = match order.side {
-                            Side::Buy => &mut self.asks,
-                            Side::Sell => &mut self.bids,
-                        };
-                        if let Some(lev_pos) = lev_vec
-                            .iter()
-                            .position(|lev| lev.price == order_try_match.price)
-                        {
-                            let lev = lev_vec[lev_pos].borrow_mut();
-                            let opp_ord = lev.orders.pop_front().unwrap();
-                            if lev.orders.is_empty() {
-                                lev_vec.remove(lev_pos);
-                            }
-                            self.events.push(OrderEvent::PartiallyFilled {
-                                id: order.id,
-                                price: order.price,
-                                qty: opp_ord.remaining_qty,
-                                timestamp,
-                            });
-                            self.events.push(OrderEvent::Filled {
-                                id: opp_ord.id,
-                                price: order.price,
-                                timestamp,
-                            });
-                            return MatchStatus::Pending;
-                        }
-                        MatchStatus::Pending
-                    }
-                    Ordering::Less => {
-                        let lev_vec = match order.side {
-                            Side::Buy => &mut self.asks,
-                            Side::Sell => &mut self.bids,
-                        };
-                        if let Some(lev_pos) = lev_vec
-                            .iter()
-                            .position(|lev| lev.price == order_try_match.price)
-                        {
-                            let lev = lev_vec[lev_pos].borrow_mut();
-                            let mut opp_ord = lev.orders.front().unwrap().to_owned();
-                            let _ = opp_ord.fill(order.remaining_qty);
-                            self.events.push(OrderEvent::PartiallyFilled {
-                                id: opp_ord.id,
-                                price: order.price,
-                                qty: order.remaining_qty,
-                                timestamp,
-                            });
-                            self.events.push(OrderEvent::Filled {
-                                id: order.id,
-                                price: order.price,
-                                timestamp,
-                            });
-                            return MatchStatus::Done;
-                        };
-                        MatchStatus::Done
-                    }
-                    _ => {
-                        let lev_vec = match order.side {
-                            Side::Buy => &mut self.asks,
-                            Side::Sell => &mut self.bids,
-                        };
-                        if let Some(lev_pos) = lev_vec
-                            .iter()
-                            .position(|lev| lev.price == order_try_match.price)
-                        {
-                            let lev = lev_vec[lev_pos].borrow_mut();
-                            let opp_ord = lev.orders.pop_front().unwrap();
-                            if lev.orders.is_empty() {
-                                lev_vec.remove(lev_pos);
-                            }
-                            self.events.push(OrderEvent::Filled {
-                                id: opp_ord.id,
-                                price: order.price,
-                                timestamp,
-                            });
-                            self.events.push(OrderEvent::Filled {
-                                id: order.id,
-                                price: order.price,
-                                timestamp,
-                            });
-                            return MatchStatus::Done;
-                        }
-                        MatchStatus::Done
-                    }
+        match order.remaining_qty.cmp(&match_order.remaining_qty) {
+            Ordering::Greater => {
+                let lev_vec = match order.side {
+                    Side::Buy => &mut self.asks,
+                    Side::Sell => &mut self.bids,
                 };
+                if let Some(lev_pos) = lev_vec
+                    .iter()
+                    .position(|lev| lev.price == match_order.price)
+                {
+                    let lev = lev_vec[lev_pos].borrow_mut();
+                    let opp_ord = lev.orders.pop_front().unwrap();
+                    if lev.orders.is_empty() {
+                        lev_vec.remove(lev_pos);
+                    }
+                    self.events.push(OrderEvent::PartiallyFilled {
+                        id: order.id,
+                        price: order.price,
+                        qty: opp_ord.remaining_qty,
+                        timestamp,
+                    });
+                    self.events.push(OrderEvent::Filled {
+                        id: opp_ord.id,
+                        price: order.price,
+                        timestamp,
+                    });
+                    return MatchStatus::Pending;
+                }
+                return MatchStatus::Pending;
+            }
+            Ordering::Less => {
+                let lev_vec = match order.side {
+                    Side::Buy => &mut self.asks,
+                    Side::Sell => &mut self.bids,
+                };
+                if let Some(lev_pos) = lev_vec
+                    .iter()
+                    .position(|lev| lev.price == match_order.price)
+                {
+                    let lev = lev_vec[lev_pos].borrow_mut();
+                    let mut opp_ord = lev.orders.front().unwrap().to_owned();
+                    let _ = opp_ord.fill(order.remaining_qty);
+                    self.events.push(OrderEvent::PartiallyFilled {
+                        id: opp_ord.id,
+                        price: order.price,
+                        qty: order.remaining_qty,
+                        timestamp,
+                    });
+                    self.events.push(OrderEvent::Filled {
+                        id: order.id,
+                        price: order.price,
+                        timestamp,
+                    });
+                    return MatchStatus::Done;
+                };
+                return MatchStatus::Done;
+            }
+            _ => {
+                let lev_vec = match order.side {
+                    Side::Buy => &mut self.asks,
+                    Side::Sell => &mut self.bids,
+                };
+                if let Some(lev_pos) = lev_vec
+                    .iter()
+                    .position(|lev| lev.price == match_order.price)
+                {
+                    let lev = lev_vec[lev_pos].borrow_mut();
+                    let opp_ord = lev.orders.pop_front().unwrap();
+                    if lev.orders.is_empty() {
+                        lev_vec.remove(lev_pos);
+                    }
+                    self.events.push(OrderEvent::Filled {
+                        id: opp_ord.id,
+                        price: order.price,
+                        timestamp,
+                    });
+                    self.events.push(OrderEvent::Filled {
+                        id: order.id,
+                        price: order.price,
+                        timestamp,
+                    });
+                    return MatchStatus::Done;
+                }
+                return MatchStatus::Done;
             }
         }
-        MatchStatus::Pending
     }
 }
 

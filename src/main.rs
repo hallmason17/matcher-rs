@@ -23,7 +23,7 @@ fn main() {
     tracing_subscriber::registry().with(fmt::layer()).init();
     tracing::info!("Starting up matcher-rs");
     let mut order_book = OrderBook::new();
-    let i = 20_000;
+    let i = 100_000;
     let now = Instant::now();
     for _ in 0..i {
         order_book.process_command(OrderCommand::New {
@@ -43,7 +43,7 @@ fn main() {
     tracing::info!("Avg time per order: {:?}", now.elapsed() / i * 2);
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
 enum OrderCommand {
     New {
         order_type: OrderType,
@@ -51,8 +51,18 @@ enum OrderCommand {
         price: i32,
         qty: u32,
     },
-    Modify,
-    Cancel,
+    Modify {
+        id: usize,
+        price: i32,
+        side: Side,
+        qty: u32,
+        order_type: OrderType,
+    },
+    Cancel {
+        id: usize,
+        side: Side,
+        price: i32,
+    },
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -65,7 +75,9 @@ enum OrderEvent {
         timestamp: Instant,
     },
     Modified,
-    Canceled,
+    Canceled {
+        id: usize,
+    },
     PartiallyFilled {
         id: usize,
         price: i32,

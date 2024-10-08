@@ -18,4 +18,58 @@ impl Level {
             orders: VecDeque::new(),
         }
     }
+
+    pub fn find_by_id(&self, id: usize) -> Option<usize> {
+        if let Some(pos) = self.orders.iter().position(|x| x.id == id) {
+            Some(pos)
+        } else {
+            None
+        }
+    }
+
+    pub fn remove_order_by_id(&mut self, id: usize) -> bool {
+        if let Some(order_pos) = self.find_by_id(id) {
+            self.orders.remove(order_pos).is_some()
+        } else {
+            false
+        }
+    }
+}
+#[cfg(test)]
+mod tests {
+    use crate::Order;
+
+    use super::Level;
+
+    #[test]
+    fn test_remove_by_id() {
+        let mut level = Level::new(10);
+        let order = Order::new(crate::OrderType::GoodTilCancel, crate::Side::Buy, 10, 1);
+        level.orders.push_back(order.clone());
+        let order = Order::new(crate::OrderType::GoodTilCancel, crate::Side::Buy, 10, 1);
+        level.orders.push_back(order.clone());
+        let order = Order::new(crate::OrderType::GoodTilCancel, crate::Side::Buy, 10, 1);
+        level.orders.push_back(order.clone());
+        let order1 = Order::new(crate::OrderType::GoodTilCancel, crate::Side::Buy, 10, 1);
+        level.orders.push_back(order1.clone());
+
+        let removed = level.remove_order_by_id(order1.id);
+        assert_eq!(removed, true)
+    }
+
+    #[test]
+    fn test_find_by_id() {
+        let mut level = Level::new(10);
+        let order = Order::new(crate::OrderType::GoodTilCancel, crate::Side::Buy, 10, 1);
+        level.orders.push_back(order.clone());
+        let order = Order::new(crate::OrderType::GoodTilCancel, crate::Side::Buy, 10, 1);
+        level.orders.push_back(order.clone());
+        let order = Order::new(crate::OrderType::GoodTilCancel, crate::Side::Buy, 10, 1);
+        level.orders.push_back(order.clone());
+        let order = Order::new(crate::OrderType::GoodTilCancel, crate::Side::Buy, 10, 1);
+        level.orders.push_back(order.clone());
+
+        let pos = level.find_by_id(order.id);
+        assert_eq!(pos, Some(3usize))
+    }
 }
